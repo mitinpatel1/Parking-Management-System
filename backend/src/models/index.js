@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
+
 const userSchema = new Schema({
   name: { type: String, required: true, trim: true, maxlength: 90 },
   email: { type: String, required: true, lowercase: true, trim: true, unique: true },
@@ -15,6 +16,12 @@ const locationSchema = new Schema({
   city: { type: String, required: true, trim: true },
   area: { type: String, required: true, trim: true },
   address: { type: String, required: true, trim: true },
+  pincode: {
+  type: String,
+  trim: true,
+  default: '',
+  maxlength: 12
+},
   lat: { type: Number, default: 0 },
   lng: { type: Number, default: 0 },
   kind: { type: String, enum: ['mall', 'airport', 'office', 'station', 'public'], default: 'public' },

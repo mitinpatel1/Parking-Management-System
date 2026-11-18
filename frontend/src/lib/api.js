@@ -39,3 +39,9 @@ export function formatDate(v, options) { if (!v) return '—'; return new Date(v
 export function dateTimeInput(d) { const dt = new Date(d); return new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
 export const clampVehicle = v => ({ car: 'Car', bike: 'Bike', ev: 'Electric vehicle' }[v] || v);
 export function locationImageClass(cover) { return `location-art art-${['violet','blue','mint','orange','pink'].includes(cover) ? cover : 'violet'}`; }
+
+// City selection persistence
+export const cityStore = {
+  get: () => localStorage.getItem('parkease_city') || '',
+  set: city => city ? localStorage.setItem('parkease_city', city) : localStorage.removeItem('parkease_city')
+};

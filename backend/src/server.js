@@ -92,8 +92,8 @@ async function start() {
   startMQTT();
   setInterval(() => cancelExpired().catch(console.error), 60*1000).unref();
   cancelExpired().catch(console.error);
-  server.listen(Number(process.env.PORT) || 5000, '0.0.0.0', () => {
-    console.log(`ParkEase API listening on port ${process.env.PORT || 5000}`);
+  server.listen(Number(process.env.PORT) || 5600, '0.0.0.0', () => {
+    console.log(`ParkEase API listening on port ${process.env.PORT || 5600}`);
   });
 }
 if (require.main === module) start().catch(e => { console.error('Startup failed:', e.message); process.exit(1); });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowLeft,
   ArrowRight,
   BadgeCheck,
   Bike,
@@ -7,10 +8,11 @@ import {
   CalendarDays,
   CarFront,
   Check,
-  Clock,
   Clock3,
   CreditCard,
+  Globe,
   MapPin,
+  Navigation,
   ParkingSquare,
   Phone,
   QrCode,
@@ -21,7 +23,7 @@ import {
   Zap
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { api, dateTimeInput, formatMoney, guestStore, locationImageClass } from '../lib/api';
+import { api, cityStore, dateTimeInput, formatMoney, guestStore, locationImageClass } from '../lib/api';
 import { useLive } from '../contexts/LiveContext';
 import { ErrorBanner, Spinner } from '../components/Status';
 
@@ -32,13 +34,146 @@ const slotMeta = {
   accessible: { title: 'Accessible', icon: ShieldCheck, badge: 'Reserved accessible bays' }
 };
 
-export default function OfficeParking() {
+// ============================================================
+// STEP 0 — CITY SELECTION SCREEN
+// ============================================================
+function CityPicker({ cities, loading, onSelect }) {
+  if (loading) return <Spinner />;
+
+  if (!cities.length) {
+    return (
+      <div className="city-empty">
+        <Globe size={40} />
+        <h2>No Cities Available</h2>
+        <p>No parking facilities have been registered yet. Contact administration.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container inner-page city-picker-page">
+      <div className="city-picker-header">
+        <div className="city-picker-icon"><Globe size={28} /></div>
+        <h1>Select Your City</h1>
+        <p>Choose the city where you want to park your vehicle. Only locations in that city will be shown.</p>
+      </div>
+
+      <div className="city-grid">
+        {cities.map(city => (
+          <button
+            key={city}
+            className="city-card"
+            onClick={() => onSelect(city)}
+          >
+            <div className="city-card-icon"><MapPin size={24} /></div>
+            <h3>{city}</h3>
+            <span className="city-card-arrow"><ArrowRight size={18} /></span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// STEP 1 — LOCATION LIST FOR SELECTED CITY
+// ============================================================
+function LocationList({ city, locations, loading, onSelect, onBack }) {
+  if (loading) return <Spinner />;
+
+  return (
+    <div className="container inner-page">
+      <div className="location-list-header">
+        <button className="btn btn-outline btn-sm" onClick={onBack}>
+          <ArrowLeft size={16} /> Change City
+        </button>
+        <div>
+          <div className="section-kicker">PARKING IN</div>
+          <h1><MapPin size={28} className="inline-icon" /> {city}</h1>
+          <p>{locations.length} parking {locations.length === 1 ? 'facility' : 'facilities'} available</p>
+        </div>
+      </div>
+
+      {!locations.length ? (
+        <div className="city-empty">
+          <ParkingSquare size={40} />
+          <h2>No Parking Available</h2>
+          <p>No active parking facilities found in {city}. Try another city.</p>
+        </div>
+      ) : (
+        <div className="locations-grid">
+          {locations.map(loc => (
+            <div key={loc._id} className="location-card">
+              <div className={locationImageClass(loc.cover)}>
+                <div className="art-street">
+                  <div className="art-building b1" />
+                  <div className="art-building b2" />
+                  <div className="art-building b3" />
+                </div>
+                <div className="art-ground">
+                  <div className="art-roadline" />
+                </div>
+                <div className="art-car"><CarFront size={36} /></div>
+                <span className="art-chip"><ParkingSquare size={12} /> {loc.kind?.toUpperCase()}</span>
+                {loc.isOpen && <span className="art-open"><i className="visual-green-dot" /> OPEN</span>}
+              </div>
+
+              <div className="location-card-body">
+                <div className="location-topline">
+                  <span className="muted">{loc.area?.toUpperCase()}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Navigation size={12} />
+                    {loc.distanceKm != null ? `${loc.distanceKm} km` : loc.area}
+                  </span>
+                </div>
+                <h3>{loc.name}</h3>
+                <p className="address"><MapPin size={14} /> {loc.address}</p>
+
+                {loc.features?.length > 0 && (
+                  <div className="location-features-row">
+                    {loc.features.slice(0, 3).map(f => (
+                      <span key={f} className="amenity-tag-sm"><Check size={11} /> {f}</span>
+                    ))}
+                    {loc.features.length > 3 && (
+                      <span className="amenity-tag-sm">+{loc.features.length - 3} more</span>
+                    )}
+                  </div>
+                )}
+
+                <div className="location-bottom">
+                  <span>
+                    <ParkingSquare size={16} />
+                    {loc.stats?.available ?? 0}/{loc.stats?.total ?? 0} Available
+                  </span>
+                  <span className="location-rate">
+                    From <b>₹{loc.prices?.bike || loc.prices?.car || 30}/hr</b>
+                  </span>
+                </div>
+
+                <button
+                  className="btn btn-primary btn-block"
+                  style={{ marginTop: 14 }}
+                  onClick={() => onSelect(loc)}
+                >
+                  Park Here <ArrowRight size={16} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// STEP 2 — SLOT MAP & BOOKING FORM FOR SELECTED LOCATION
+// ============================================================
+function SlotBooking({ location, onBack }) {
   const nav = useNavigate();
   const { version } = useLive();
 
-  const [location, setLocation] = useState(null);
   const [slots, setSlots] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState('');
@@ -51,37 +186,14 @@ export default function OfficeParking() {
   const [saving, setSaving] = useState(false);
   const [paymentConfig, setPaymentConfig] = useState({ demo: false, online: false });
 
-  // Default time window: Current time to +4 hours
   const [start, setStart] = useState(() => dateTimeInput(new Date()));
   const [end, setEnd] = useState(() => dateTimeInput(new Date(Date.now() + 4 * 3600000)));
 
-  // Load primary office location & payment configuration
   useEffect(() => {
-    let active = true;
-    setError('');
-    api('/locations/office/primary')
-      .then(loc => {
-        if (active) setLocation(loc);
-      })
-      .catch(e => {
-        if (active) setError(e.message);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
-    api('/payments/config')
-      .then(cfg => {
-        if (active) setPaymentConfig(cfg);
-      })
-      .catch(() => {});
-
-    return () => {
-      active = false;
-    };
+    api('/payments/config').then(setPaymentConfig).catch(() => {});
   }, []);
 
-  // Fetch slots whenever location, dates, vehicle type or live version changes
+  // Fetch slots whenever dates, vehicle type or live version changes
   useEffect(() => {
     if (!location?._id) return;
     let active = true;
@@ -110,9 +222,7 @@ export default function OfficeParking() {
         if (active) setFetching(false);
       });
 
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [location?._id, start, end, vehicle, version]);
 
   const floors = useMemo(() => [...new Set(slots.map(s => s.floor))], [slots]);
@@ -154,7 +264,6 @@ export default function OfficeParking() {
       if (isNaN(endTime.getTime()) || endTime <= startTime) {
         endTime = new Date(startTime.getTime() + 4 * 3600000);
       }
-      // If start was earlier while filling form, auto-advance to current time
       if (startTime.getTime() < Date.now() - 60000) {
         const durationMs = Math.max(3600000, endTime.getTime() - startTime.getTime());
         startTime = new Date();
@@ -175,10 +284,7 @@ export default function OfficeParking() {
         }
       });
 
-      // Save ID to local storage so user can view booking without login
       guestStore.addId(booking._id);
-
-      // Redirect to My Bookings with new ticket open
       nav('/bookings', { state: { newBooking: booking._id, justBooked: true } });
     } catch (err) {
       setError(err.message);
@@ -187,26 +293,21 @@ export default function OfficeParking() {
     }
   };
 
-  if (loading) return <Spinner />;
-
-  if (!location) {
-    return (
-      <div className="container inner-page">
-        <ErrorBanner message={error || 'Office parking facility details could not be loaded.'} />
-      </div>
-    );
-  }
-
   const paymentReady = paymentConfig.demo || paymentConfig.online;
 
   return (
     <div className="container inner-page office-parking-page">
+      {/* BACK TO LOCATIONS */}
+      <button className="btn btn-outline btn-sm" style={{ marginBottom: 18 }} onClick={onBack}>
+        <ArrowLeft size={16} /> Back to Locations
+      </button>
+
       {/* VENUE HERO / HEADER */}
       <div className="office-header-card">
         <div className="office-header-main">
           <div className="office-badge">
             <Building2 size={16} />
-            <span>OFFICE WORKSPACE PARKING</span>
+            <span>{location.kind?.toUpperCase() || 'OFFICE'} PARKING</span>
           </div>
           <h1>{location.name}</h1>
           <p className="office-address">
@@ -238,7 +339,7 @@ export default function OfficeParking() {
             <div className="panel-head">
               <div>
                 <h2>1. Select Parking Timing</h2>
-                <p>When will your vehicle arrive and depart from the office?</p>
+                <p>When will your vehicle arrive and depart?</p>
               </div>
               <CalendarDays size={22} />
             </div>
@@ -442,6 +543,10 @@ export default function OfficeParking() {
                 <b>{location.name}</b>
               </div>
               <div>
+                <span>City</span>
+                <b>{location.city}</b>
+              </div>
+              <div>
                 <span>Selected Spot</span>
                 <b>{chosen ? `${chosen.number} (Floor ${chosen.floor})` : 'Select from map'}</b>
               </div>
@@ -546,3 +651,121 @@ export default function OfficeParking() {
   );
 }
 
+// ============================================================
+// MAIN COMPONENT — ORCHESTRATES ALL THREE STEPS
+// ============================================================
+export default function OfficeParking() {
+  const [step, setStep] = useState('loading'); // loading | city | locations | booking
+  const [cities, setCities] = useState([]);
+  const [selectedCity, setSelectedCity] = useState(() => cityStore.get());
+  const [locations, setLocations] = useState([]);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [loadingCities, setLoadingCities] = useState(true);
+  const [loadingLocations, setLoadingLocations] = useState(false);
+  const [error, setError] = useState('');
+
+  // Load cities on mount
+  useEffect(() => {
+    api('/locations/cities')
+      .then(list => {
+        setCities(list);
+        // If a city was saved and exists in the list, skip city picker
+        const saved = cityStore.get();
+        if (saved && list.some(c => c.toLowerCase() === saved.toLowerCase())) {
+          setSelectedCity(saved);
+          setStep('locations');
+        } else if (list.length === 1) {
+          // Only 1 city → auto-select
+          setSelectedCity(list[0]);
+          cityStore.set(list[0]);
+          setStep('locations');
+        } else {
+          setStep('city');
+        }
+      })
+      .catch(e => {
+        setError(e.message);
+        setStep('city');
+      })
+      .finally(() => setLoadingCities(false));
+  }, []);
+
+  // Load locations when city is selected
+  useEffect(() => {
+    if (!selectedCity || step === 'city' || step === 'loading') return;
+    setLoadingLocations(true);
+    setError('');
+    api(`/locations?city=${encodeURIComponent(selectedCity)}`)
+      .then(list => {
+        setLocations(list);
+        // If only 1 location in this city, skip to booking directly
+        if (list.length === 1) {
+          setSelectedLocation(list[0]);
+          setStep('booking');
+        }
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoadingLocations(false));
+  }, [selectedCity, step]);
+
+  const handleCitySelect = city => {
+    setSelectedCity(city);
+    cityStore.set(city);
+    setStep('locations');
+  };
+
+  const handleLocationSelect = loc => {
+    setSelectedLocation(loc);
+    setStep('booking');
+  };
+
+  const handleBackToCity = () => {
+    setSelectedCity('');
+    cityStore.set('');
+    setSelectedLocation(null);
+    setLocations([]);
+    setStep('city');
+  };
+
+  const handleBackToLocations = () => {
+    setSelectedLocation(null);
+    if (locations.length <= 1) {
+      // If only 1 location, go back to city selection instead
+      handleBackToCity();
+    } else {
+      setStep('locations');
+    }
+  };
+
+  if (step === 'loading' || loadingCities) return <Spinner />;
+
+  if (error && step === 'city') {
+    return (
+      <div className="container inner-page">
+        <ErrorBanner message={error} />
+      </div>
+    );
+  }
+
+  if (step === 'city') {
+    return <CityPicker cities={cities} loading={loadingCities} onSelect={handleCitySelect} />;
+  }
+
+  if (step === 'locations') {
+    return (
+      <LocationList
+        city={selectedCity}
+        locations={locations}
+        loading={loadingLocations}
+        onSelect={handleLocationSelect}
+        onBack={handleBackToCity}
+      />
+    );
+  }
+
+  if (step === 'booking' && selectedLocation) {
+    return <SlotBooking location={selectedLocation} onBack={handleBackToLocations} />;
+  }
+
+  return <Spinner />;
+}
