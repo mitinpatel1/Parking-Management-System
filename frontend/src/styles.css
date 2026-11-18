@@ -4104,29 +4104,224 @@ select {
   }
 }
 
-@media print {
+/* 58mm Thermal Receipt Styles */
+.receipt-modal-backdrop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(4px);
+  padding: 16px;
+  overflow-y: auto;
+}
 
+.receipt-modal-container {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25);
+  width: 100%;
+  max-width: 340px;
+  padding: 16px;
+  animation: modalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.receipt-screen-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.receipt-toolbar-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #1e293b;
+}
+
+.receipt-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.receipt-58mm-paper {
+  background: #ffffff;
+  color: #000000;
+  font-family: 'Courier New', Courier, 'Lucida Console', monospace;
+  width: 100%;
+  max-width: 280px;
+  margin: 0 auto;
+  padding: 12px 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: -0.2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.t-center {
+  text-align: center;
+}
+
+.t-bold {
+  font-weight: 700;
+}
+
+.t-brand {
+  font-size: 13.5px;
+  letter-spacing: 0.8px;
+  margin-bottom: 2px;
+}
+
+.t-title {
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.t-heading {
+  font-size: 10.5px;
+  margin: 4px 0;
+  letter-spacing: 0.3px;
+}
+
+.t-muted {
+  color: #334155;
+}
+
+.t-small {
+  font-size: 9.5px;
+}
+
+.t-divider {
+  border-top: 1px solid #000000;
+  margin: 6px 0;
+}
+
+.t-divider-dashed {
+  border-top: 1px dashed #000000;
+  margin: 4px 0;
+}
+
+.t-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin: 2px 0;
+  gap: 4px;
+}
+
+.t-plate {
+  letter-spacing: 0.8px;
+  font-size: 11.5px;
+}
+
+.t-total {
+  font-size: 12.5px;
+  margin: 4px 0;
+}
+
+.t-break {
+  word-break: break-all;
+  max-width: 130px;
+  text-align: right;
+}
+
+.t-qr-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 6px 0;
+  text-align: center;
+}
+
+.t-qr-caption {
+  margin-top: 4px;
+  letter-spacing: 0.8px;
+  font-size: 11px;
+}
+
+.receipt-screen-note {
+  text-align: center;
+  color: #64748b;
+  font-size: 0.78rem;
+  padding-top: 4px;
+}
+
+.receipt-screen-note small {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+@media print {
+  @page {
+    size: 58mm auto;
+    margin: 0;
+  }
+
+  html, body {
+    width: 58mm !important;
+    max-width: 58mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .receipt-58mm-paper,
+  .receipt-58mm-paper * {
+    visibility: visible !important;
+  }
+
+  .receipt-58mm-paper {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 58mm !important;
+    max-width: 58mm !important;
+    min-width: 58mm !important;
+    margin: 0 !important;
+    padding: 2mm 2.5mm !important;
+    box-sizing: border-box !important;
+    background: #fff !important;
+    color: #000 !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    font-size: 10px !important;
+    line-height: 1.3 !important;
+    border: none !important;
+    box-shadow: none !important;
+    display: block !important;
+  }
+
+  .receipt-screen-toolbar,
+  .receipt-screen-note,
+  .receipt-modal-backdrop,
+  .modal-backdrop,
   .site-header,
   .footer,
   .booking-tabs,
   .page-intro,
   .booking-record,
-  .ticket-modal .btn,
+  .ticket-modal,
   .modal-close,
   .dashboard-sidebar {
-    display: none !important
-  }
-
-  .modal-backdrop {
-    position: static;
-    background: #fff;
-    display: block
-  }
-
-  .ticket-modal {
-    box-shadow: none;
-    border: 0;
-    margin: 20px auto
+    display: none !important;
   }
 }
 

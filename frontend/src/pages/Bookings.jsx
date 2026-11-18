@@ -7,6 +7,7 @@ import {
   CreditCard,
   Download,
   MapPin,
+  Printer,
   QrCode,
   Search,
   ShieldCheck,
@@ -21,6 +22,7 @@ import { api, formatDate, formatMoney, guestStore } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useLive } from '../contexts/LiveContext';
 import { Empty, ErrorBanner, Spinner, Status } from '../components/Status';
+import ThermalReceipt58mm from '../components/ThermalReceipt58mm';
 
 function injectRazorpay() {
   return new Promise((resolve, reject) => {
@@ -45,7 +47,9 @@ export default function Bookings() {
   const [selected, setSelected] = useState(null);
   const [tab, setTab] = useState('all');
   const [busy, setBusy] = useState('');
-  const [config, setConfig] = useState({ demo: false, online: false });
+  const [config, setConfig] = useState({ online: false });
+  const [receiptBooking, setReceiptBooking] = useState(null);
+  const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
 
   // Search by vehicle number or booking code
   const [searchQuery, setSearchQuery] = useState('');
@@ -142,31 +146,24 @@ export default function Bookings() {
     }
   };
 
-  const pay = async (b, demo) => {
+  const pay = async b => {
     setBusy(b._id);
     setError('');
     try {
-      if (demo) {
-        await api(`/payments/${b._id}/demo`, { method: 'POST' });
-        setSuccess(`Payment for ${b.code} successful! Credited to parking administration.`);
-        await loadBookings();
-        return;
-      }
-
       const order = await api(`/payments/${b._id}/order`, { method: 'POST' });
       await injectRazorpay();
-      await new Promise((resolve, reject) => {
+      const paymentResponse = await new Promise((resolve, reject) => {
         const rz = new window.Razorpay({
           key: order.keyId,
           amount: order.amount,
           currency: order.currency,
-          name: 'ParkEase Office Parking',
+          name: 'ParkEase Parking',
           description: `Parking Pass ${b.code}`,
           order_id: order.orderId,
           handler: async response => {
             try {
-              await api(`/payments/${b._id}/verify`, { method: 'POST', body: response });
-              resolve();
+              const res = await api(`/payments/${b._id}/verify`, { method: 'POST', body: response });
+              resolve({ ...response, updated: res.booking });
             } catch (e) {
               reject(e);
             }
@@ -177,8 +174,22 @@ export default function Bookings() {
         rz.open();
       });
 
-      setSuccess(`Online payment confirmed for ${b.code}!`);
+      setSuccess(`Online payment confirmed for ${b.code}! Printing 58mm receipt...`);
       await loadBookings();
+
+      // Automatically show and print 58mm thermal receipt
+      const paidBooking = paymentResponse.updated || {
+        ...b,
+        payment: {
+          ...b.payment,
+          status: 'paid',
+          method: 'online',
+          paidAt: new Date(),
+          reference: paymentResponse.razorpay_payment_id || 'ONLINE'
+        }
+      };
+      setReceiptBooking(paidBooking);
+      setAutoPrintReceipt(true);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -290,25 +301,15 @@ export default function Bookings() {
                 {/* Pay online if unpaid */}
                 {b.payment?.status !== 'paid' && !['cancelled', 'expired', 'completed'].includes(b.status) && (
                   <>
-                    {config.demo && (
+                    {config.online ? (
                       <button
                         className="btn btn-primary btn-sm"
                         disabled={busy === b._id}
-                        onClick={() => pay(b, true)}
+                        onClick={() => pay(b)}
                       >
-                        {busy === b._id ? 'Processing…' : 'Demo Pay (Instant)'} <CreditCard size={16} />
+                        {busy === b._id ? 'Processing…' : 'Pay Online'} <ArrowRight size={16} />
                       </button>
-                    )}
-                    {config.online && (
-                      <button
-                        className="btn btn-primary btn-sm"
-                        disabled={busy === b._id}
-                        onClick={() => pay(b, false)}
-                      >
-                        Pay Online <ArrowRight size={16} />
-                      </button>
-                    )}
-                    {!config.demo && !config.online && (
+                    ) : (
                       <span className="muted" style={{ fontSize: '0.85rem' }}>
                         Pay at Gate via Cash/UPI
                       </span>
@@ -320,6 +321,20 @@ export default function Bookings() {
                 {['confirmed', 'checked_in', 'payment_due', 'completed'].includes(b.status) && (
                   <button className="btn btn-outline btn-sm" onClick={() => setSelected(b)}>
                     <QrCode size={17} /> View Gate QR Ticket
+                  </button>
+                )}
+
+                {/* Print 58mm Thermal Receipt */}
+                {b.payment?.status === 'paid' && (
+                  <button
+                    className="btn btn-soft btn-sm"
+                    onClick={() => {
+                      setReceiptBooking(b);
+                      setAutoPrintReceipt(false);
+                    }}
+                    title="Print 58mm Thermal Slip"
+                  >
+                    <Printer size={16} /> Print 58mm Receipt
                   </button>
                 )}
 
@@ -402,11 +417,34 @@ export default function Bookings() {
               <ShieldCheck size={15} /> Authorized pass for office campus entry and exit.
             </p>
 
-            <button className="btn btn-primary btn-block" onClick={() => window.print()}>
-              <Download size={18} /> Print Gate Pass
-            </button>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+              <button
+                className="btn btn-primary"
+                style={{ flex: 1 }}
+                onClick={() => {
+                  const target = selected;
+                  setSelected(null);
+                  setReceiptBooking(target);
+                  setAutoPrintReceipt(true);
+                }}
+              >
+                <Printer size={18} /> Print 58mm Receipt
+              </button>
+            </div>
           </div>
         </div>
+      )}
+
+      {/* 58MM THERMAL RECEIPT MODAL */}
+      {receiptBooking && (
+        <ThermalReceipt58mm
+          booking={receiptBooking}
+          autoPrint={autoPrintReceipt}
+          onClose={() => {
+            setReceiptBooking(null);
+            setAutoPrintReceipt(false);
+          }}
+        />
       )}
     </div>
   );

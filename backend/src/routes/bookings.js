@@ -76,7 +76,11 @@ router.post('/', asyncHandler(async (req, res) => {
     guestPhone: z.string().trim().max(25).optional().or(z.literal(''))
   }).parse(req.body);
 
-  if (parsed.paymentMethod === 'online' && !((process.env.NODE_ENV !== 'production' && process.env.DEMO_PAYMENTS === 'true') || (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET))) {
+  const isOnlinePaymentAvailable = Boolean(
+    (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) ||
+    process.env.PAYMENT_GATEWAY_CONFIGURED === 'true'
+  );
+  if (parsed.paymentMethod === 'online' && !isOnlinePaymentAvailable) {
     throw new ApiError(503, 'Online payment is not configured. Please use Pay at Gate.');
   }
 

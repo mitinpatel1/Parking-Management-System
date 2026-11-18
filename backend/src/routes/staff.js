@@ -54,6 +54,33 @@ router.post('/:id/settle', asyncHandler(async (req, res) => {
   b.payment.status = 'paid'; b.payment.paidAt = new Date(); b.payment.reference = reference.trim() || `COUNTER-${Date.now()}`;
   b.extraPaid = b.extraDue; b.extraDue = 0; b.status = 'completed'; await b.save(); emitBooking(b);
   await notify(b.user, 'Payment settled', `Parking visit ${b.code} is complete.`, b.id).catch(console.error);
-  res.json({ success: true });
+  await populate(b);
+  res.json({ success: true, booking: b });
+}));
+router.post('/:id/record-cash', asyncHandler(async (req, res) => {
+  const { reference = '' } = z.object({ reference: z.string().max(90).optional() }).parse(req.body);
+  const b = await Booking.findById(req.params.id);
+  if (!b) throw new ApiError(404, 'Booking not found');
+  if (b.payment?.status === 'paid' && b.status !== 'payment_due') {
+    throw new ApiError(400, 'Booking is already paid');
+  }
+  b.payment.status = 'paid';
+  b.payment.method = 'counter';
+  b.payment.paidAt = new Date();
+  b.payment.reference = reference.trim() || `CASH-${Date.now()}`;
+  if (b.status === 'pending_payment') {
+    b.status = 'confirmed';
+    b.holdUntil = undefined;
+  }
+  if (b.status === 'payment_due') {
+    b.extraPaid = b.extraDue;
+    b.extraDue = 0;
+    b.status = 'completed';
+  }
+  await b.save();
+  emitBooking(b);
+  await notify(b.user, 'Cash payment received', `Cash payment recorded for booking ${b.code}.`, b.id).catch(console.error);
+  await populate(b);
+  res.json({ success: true, booking: b });
 }));
 module.exports = router;

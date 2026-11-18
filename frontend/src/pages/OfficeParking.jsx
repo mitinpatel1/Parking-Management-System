@@ -184,7 +184,7 @@ function SlotBooking({ location, onBack }) {
   const [guestPhone, setGuestPhone] = useState('');
   const [pay, setPay] = useState('counter');
   const [saving, setSaving] = useState(false);
-  const [paymentConfig, setPaymentConfig] = useState({ demo: false, online: false });
+  const [paymentConfig, setPaymentConfig] = useState({ online: false });
 
   const [start, setStart] = useState(() => dateTimeInput(new Date()));
   const [end, setEnd] = useState(() => dateTimeInput(new Date(Date.now() + 4 * 3600000)));
@@ -293,7 +293,7 @@ function SlotBooking({ location, onBack }) {
     }
   };
 
-  const paymentReady = paymentConfig.demo || paymentConfig.online;
+  const paymentReady = paymentConfig.online;
 
   return (
     <div className="container inner-page office-parking-page">

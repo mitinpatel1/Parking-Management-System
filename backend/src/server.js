@@ -86,7 +86,6 @@ configureIO(io);
 async function start() {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) throw new Error('Set JWT_SECRET with at least 32 characters');
   if (!process.env.MONGODB_URI) throw new Error('Set MONGODB_URI in backend/.env');
-  if (process.env.NODE_ENV === 'production' && process.env.DEMO_PAYMENTS === 'true') throw new Error('DEMO_PAYMENTS must be false in production');
   await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 12000 });
   console.log(`MongoDB connected: ${mongoose.connection.name}`);
   startMQTT();

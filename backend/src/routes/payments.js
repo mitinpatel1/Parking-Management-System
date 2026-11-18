@@ -9,8 +9,6 @@ const { confirmBooking } = require('../services/bookings');
 
 router.use(optionalAuth);
 
-const demoAllowed = () => process.env.NODE_ENV !== 'production' && process.env.DEMO_PAYMENTS === 'true';
-
 const findBooking = async idOrCode => {
   if (mongoose.isValidObjectId(idOrCode)) {
     const b = await Booking.findById(idOrCode);
@@ -19,14 +17,19 @@ const findBooking = async idOrCode => {
   return await Booking.findOne({ code: String(idOrCode).trim().toUpperCase() });
 };
 
+// Check gateway availability
 router.get('/config', (req, res) => {
+  const online = Boolean(
+    (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) ||
+    process.env.PAYMENT_GATEWAY_CONFIGURED === 'true'
+  );
   res.json({
-    demo: demoAllowed(),
-    online: !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
+    online,
     keyId: process.env.RAZORPAY_KEY_ID || null
   });
 });
 
+// Create payment order
 router.post('/:bookingId/order', asyncHandler(async (req, res) => {
   const b = await findBooking(req.params.bookingId);
   if (!b || b.payment?.status === 'paid' || ['cancelled', 'expired', 'completed'].includes(b.status)) {
@@ -36,7 +39,7 @@ router.post('/:bookingId/order', asyncHandler(async (req, res) => {
     throw new ApiError(409, 'Payment hold expired');
   }
   if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-    throw new ApiError(503, 'Online gateway is not configured. Use demo pay in development or choose Pay at Gate.');
+    throw new ApiError(503, 'Online payment gateway is not configured. Please set up your payment gateway credentials or choose Pay at Gate.');
   }
 
   const client = new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET });
@@ -59,6 +62,7 @@ router.post('/:bookingId/order', asyncHandler(async (req, res) => {
   });
 }));
 
+// Verify payment and confirm booking
 router.post('/:bookingId/verify', asyncHandler(async (req, res) => {
   const b = await findBooking(req.params.bookingId);
   if (!b || b.payment?.status === 'paid' || ['cancelled', 'expired', 'completed'].includes(b.status)) {
@@ -87,19 +91,9 @@ router.post('/:bookingId/verify', asyncHandler(async (req, res) => {
   }
 
   b.payment.gatewayPaymentId = razorpay_payment_id;
-  await confirmBooking(b, razorpay_payment_id);
-  res.json({ success: true });
-}));
-
-router.post('/:bookingId/demo', asyncHandler(async (req, res) => {
-  if (!demoAllowed()) {
-    throw new ApiError(403, 'Demo payments are disabled');
-  }
-  const b = await findBooking(req.params.bookingId);
-  if (!b) throw new ApiError(404, 'Booking not found');
-
-  await confirmBooking(b, `DEMO-${Date.now()}`);
-  res.json({ success: true, demo: true });
+  // Mark booking as confirmed & paid with payment reference
+  const updatedBooking = await confirmBooking(b, razorpay_payment_id);
+  res.json({ success: true, booking: updatedBooking });
 }));
 
 module.exports = router;
