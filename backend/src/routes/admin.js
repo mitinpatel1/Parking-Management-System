@@ -1,13 +1,15 @@
 
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { z } = require('zod');
 
 const { Location, Slot, Booking, User } = require('../models');
 const { auth, roles } = require('../middleware/auth');
 const { ApiError, asyncHandler } = require('../lib/errors');
-const { emitLocation } = require('../services/notify');
+const { emitLocation, emitBooking, notify } = require('../services/notify');
+const { safeBookingForEmit } = require('../services/bookings');
 
 router.use(auth, roles('admin'));
 
@@ -52,16 +54,16 @@ const locationData = z.object({
 // ==========================================
 
 router.get('/stats', asyncHandler(async (req, res) => {
-
   const [
     locations,
     slots,
     bookings,
     people,
     todayBookings,
-    paidBookings
+    paidBookings,
+    pendingCounterPayments,
+    pendingOnlinePayments
   ] = await Promise.all([
-
     Location.countDocuments(),
     Slot.countDocuments(),
     Booking.countDocuments(),
@@ -83,8 +85,23 @@ router.get('/stats', asyncHandler(async (req, res) => {
           'completed'
         ]
       }
-    }, 'amount extraDue extraPaid createdAt').lean()
+    }, 'amount extraDue extraPaid createdAt').lean(),
 
+    Booking.countDocuments({
+      'payment.method': 'counter',
+      'payment.status': { $ne: 'paid' },
+      status: { $nin: ['cancelled', 'expired', 'completed'] },
+      $or: [
+        { 'payment.cashRequestAt': { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+        { 'payment.cashRequestAt': { $exists: false }, createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }
+      ]
+    }),
+
+    Booking.countDocuments({
+      'payment.method': 'online',
+      'payment.status': { $ne: 'paid' },
+      status: 'pending_payment'
+    })
   ]);
 
   const occupied = await Slot.countDocuments({
@@ -103,7 +120,6 @@ router.get('/stats', asyncHandler(async (req, res) => {
   );
 
   const chart = Array.from({ length: 7 }, (_, i) => {
-
     const d = new Date();
 
     d.setDate(d.getDate() - 6 + i);
@@ -130,7 +146,6 @@ router.get('/stats', asyncHandler(async (req, res) => {
   }).lean();
 
   for (const b of recent) {
-
     const key = new Date(b.createdAt)
       .toISOString()
       .slice(0, 10);
@@ -138,7 +153,6 @@ router.get('/stats', asyncHandler(async (req, res) => {
     const i = chartIndex[key];
 
     if (i !== undefined) {
-
       chart[i].bookings += 1;
 
       if (b.payment?.status === 'paid') {
@@ -168,10 +182,11 @@ router.get('/stats', asyncHandler(async (req, res) => {
     people,
     todayBookings: todayBookings.length,
     revenue,
+    pendingCounterPayments,
+    pendingOnlinePayments,
     chart,
     latest
   });
-
 }));
 
 
@@ -180,13 +195,11 @@ router.get('/stats', asyncHandler(async (req, res) => {
 // ==========================================
 
 router.get('/locations', asyncHandler(async (req, res) => {
-
   const locations = await Location.find()
     .sort({ createdAt: -1 })
     .lean();
 
   res.json(locations);
-
 }));
 
 
@@ -195,13 +208,11 @@ router.get('/locations', asyncHandler(async (req, res) => {
 // ==========================================
 
 router.post('/locations', asyncHandler(async (req, res) => {
-
   const data = locationData.parse(req.body);
 
   const location = await Location.create(data);
 
   res.status(201).json(location);
-
 }));
 
 
@@ -210,7 +221,6 @@ router.post('/locations', asyncHandler(async (req, res) => {
 // ==========================================
 
 router.patch('/locations/:id', asyncHandler(async (req, res) => {
-
   const location = await Location.findByIdAndUpdate(
     req.params.id,
     {
@@ -229,7 +239,6 @@ router.patch('/locations/:id', asyncHandler(async (req, res) => {
   emitLocation(location.id);
 
   res.json(location);
-
 }));
 
 
@@ -238,23 +247,18 @@ router.patch('/locations/:id', asyncHandler(async (req, res) => {
 // ==========================================
 
 router.delete('/locations/:id', asyncHandler(async (req, res) => {
-
   const { id } = req.params;
 
-  // Validate MongoDB ID
   if (!mongoose.isValidObjectId(id)) {
     throw new ApiError(400, 'Invalid parking location ID');
   }
 
-  // Find parking location
   const location = await Location.findById(id);
 
   if (!location) {
     throw new ApiError(404, 'Parking location not found');
   }
 
-  // Protect booking history.
-  // Do not delete a location if any booking is associated with it.
   const existingBooking = await Booking.exists({
     location: location._id
   });
@@ -266,7 +270,6 @@ router.delete('/locations/:id', asyncHandler(async (req, res) => {
     );
   }
 
-  // Protect occupied slots and future reservations
   const protectedSlot = await Slot.exists({
     location: location._id,
     $or: [
@@ -288,17 +291,14 @@ router.delete('/locations/:id', asyncHandler(async (req, res) => {
     );
   }
 
-  // Delete associated parking slots
   await Slot.deleteMany({
     location: location._id
   });
 
-  // Delete parking location
   await Location.deleteOne({
     _id: location._id
   });
 
-  // Notify connected clients
   emitLocation(location.id);
 
   res.json({
@@ -306,7 +306,6 @@ router.delete('/locations/:id', asyncHandler(async (req, res) => {
     message: 'Parking location deleted successfully',
     id: location.id
   });
-
 }));
 
 
@@ -315,7 +314,6 @@ router.delete('/locations/:id', asyncHandler(async (req, res) => {
 // ==========================================
 
 router.get('/slots', asyncHandler(async (req, res) => {
-
   const filter = req.query.location
     ? { location: req.query.location }
     : {};
@@ -328,7 +326,6 @@ router.get('/slots', asyncHandler(async (req, res) => {
     .lean();
 
   res.json(slots);
-
 }));
 
 
@@ -337,9 +334,7 @@ router.get('/slots', asyncHandler(async (req, res) => {
 // ==========================================
 
 router.post('/slots', asyncHandler(async (req, res) => {
-
   const body = z.object({
-
     location: z.string(),
 
     floor: z.string().min(1).max(12),
@@ -365,7 +360,6 @@ router.post('/slots', asyncHandler(async (req, res) => {
       'ev',
       'accessible'
     ])
-
   }).parse(req.body);
 
   if (!await Location.exists({
@@ -388,13 +382,10 @@ router.post('/slots', asyncHandler(async (req, res) => {
   let result;
 
   try {
-
     result = await Slot.insertMany(docs, {
       ordered: true
     });
-
   } catch (e) {
-
     if (e.code === 11000) {
       throw new ApiError(
         409,
@@ -410,7 +401,6 @@ router.post('/slots', asyncHandler(async (req, res) => {
   res.status(201).json({
     count: result.length
   });
-
 }));
 
 
@@ -419,9 +409,7 @@ router.post('/slots', asyncHandler(async (req, res) => {
 // ==========================================
 
 router.patch('/slots/:id', asyncHandler(async (req, res) => {
-
   const parsed = z.object({
-
     state: z.enum([
       'available',
       'occupied',
@@ -436,7 +424,6 @@ router.patch('/slots/:id', asyncHandler(async (req, res) => {
     ]).optional(),
 
     sensorId: z.string().max(60).optional()
-
   }).parse(req.body);
 
   const slot = await Slot.findById(req.params.id);
@@ -462,19 +449,35 @@ router.patch('/slots/:id', asyncHandler(async (req, res) => {
   emitLocation(slot.location);
 
   res.json(slot);
-
 }));
 
 
 // ==========================================
-// GET BOOKINGS
+// GET ALL BOOKINGS
 // ==========================================
 
 router.get('/bookings', asyncHandler(async (req, res) => {
+  const filter = {};
 
-  const filter = req.query.status
-    ? { status: req.query.status }
-    : {};
+  if (req.query.status) {
+    filter.status = String(req.query.status);
+  }
+
+  if (req.query.paymentMethod) {
+    if (!['online', 'counter'].includes(req.query.paymentMethod)) {
+      throw new ApiError(400, 'Invalid payment method filter');
+    }
+
+    filter['payment.method'] = req.query.paymentMethod;
+  }
+
+  if (req.query.paymentStatus) {
+    if (!['unpaid', 'pending', 'paid'].includes(req.query.paymentStatus)) {
+      throw new ApiError(400, 'Invalid payment status filter');
+    }
+
+    filter['payment.status'] = req.query.paymentStatus;
+  }
 
   const rows = await Booking.find(filter)
     .populate('location', 'name city')
@@ -485,7 +488,115 @@ router.get('/bookings', asyncHandler(async (req, res) => {
     .lean();
 
   res.json(rows);
+}));
 
+
+// ==========================================
+// GET PENDING COUNTER PAYMENT REQUESTS
+// ==========================================
+
+router.get('/payment-requests', asyncHandler(async (req, res) => {
+  const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const rows = await Booking.find({
+    'payment.method': 'counter',
+    'payment.status': { $ne: 'paid' },
+    status: { $nin: ['cancelled', 'expired', 'completed'] },
+    $or: [
+      { 'payment.cashRequestAt': { $gte: cutoff24h } },
+      { 'payment.cashRequestAt': { $exists: false }, createdAt: { $gte: cutoff24h } }
+    ]
+  })
+    .populate('location', 'name city address')
+    .populate('slot', 'number floor kind')
+    .populate('user', 'name email phone')
+    .sort({ 'payment.cashRequestAt': -1, createdAt: -1 })
+    .limit(200)
+    .lean();
+
+  res.json(rows);
+}));
+
+
+// ==========================================
+// RECEIVE CASH & GRANT PARKING ACCESS
+// ==========================================
+
+router.post('/bookings/:id/receive-cash', asyncHandler(async (req, res) => {
+  const { reference = '', autoCheckIn = false } = req.body || {};
+  const booking = await Booking.findById(req.params.id)
+    .select('+qrToken')
+    .populate('location', 'name city')
+    .populate('slot', 'number floor kind')
+    .populate('user', 'name email');
+
+  if (!booking) {
+    throw new ApiError(404, 'Booking not found');
+  }
+
+  if (booking.status === 'expired') {
+    throw new ApiError(400, 'This cash payment request expired after 24 hours and the reserved slot was released.');
+  }
+
+  const requestedAt = booking.payment?.cashRequestAt || booking.createdAt;
+  if (requestedAt && Date.now() - new Date(requestedAt).getTime() > 24 * 60 * 60 * 1000) {
+    throw new ApiError(400, 'This cash payment request expired after 24 hours.');
+  }
+
+  if (booking.payment?.status === 'paid' && booking.status !== 'payment_due') {
+    throw new ApiError(400, 'Cash payment has already been recorded for this booking');
+  }
+
+  const now = new Date();
+  booking.payment.status = 'paid';
+  booking.payment.method = 'counter';
+  booking.payment.paidAt = now;
+  booking.payment.cashApprovedAt = now;
+  booking.payment.reference = reference.trim() || `CASH-${Date.now()}`;
+  booking.payment.gateQrIssuedAt = now;
+  booking.payment.gateQrIssuedBy = req.user.id;
+
+  if (booking.status === 'pending_payment') {
+    booking.status = 'confirmed';
+    booking.holdUntil = undefined;
+  }
+
+  if (booking.status === 'payment_due') {
+    booking.extraPaid = booking.extraDue;
+    booking.extraDue = 0;
+    booking.status = 'completed';
+  }
+
+  if (!booking.qrToken) {
+    booking.qrToken = crypto.randomBytes(32).toString('hex');
+  }
+
+  if (autoCheckIn && booking.slot) {
+    booking.status = 'checked_in';
+    booking.checkedInAt = now;
+    await Slot.updateOne({ _id: booking.slot._id || booking.slot }, { state: 'occupied' });
+  }
+
+  await booking.save();
+
+  // Real-time broadcast
+  emitLocation(booking.location);
+  emitBooking(safeBookingForEmit(booking));
+
+  if (booking.user) {
+    await notify(
+      booking.user,
+      'Cash Received - Parking Access Granted',
+      `Cash payment of ₹${booking.amount} received. Your Gate Pass QR is active for entry!`,
+      booking._id
+    ).catch(console.error);
+  }
+
+  res.json({
+    success: true,
+    message: 'Cash received successfully. Parking & gate entry access granted!',
+    booking: safeBookingForEmit(booking)
+  });
 }));
 
 
@@ -494,7 +605,6 @@ router.get('/bookings', asyncHandler(async (req, res) => {
 // ==========================================
 
 router.get('/staff', asyncHandler(async (req, res) => {
-
   const staff = await User.find({
     role: {
       $in: ['staff', 'admin']
@@ -504,7 +614,6 @@ router.get('/staff', asyncHandler(async (req, res) => {
     .lean();
 
   res.json(staff);
-
 }));
 
 
@@ -513,15 +622,12 @@ router.get('/staff', asyncHandler(async (req, res) => {
 // ==========================================
 
 router.post('/staff', asyncHandler(async (req, res) => {
-
   const data = z.object({
-
     name: z.string().trim().min(2).max(90),
 
     email: z.string().email(),
 
     password: z.string().min(10).max(100)
-
   }).parse(req.body);
 
   if (await User.exists({
@@ -531,26 +637,18 @@ router.post('/staff', asyncHandler(async (req, res) => {
   }
 
   const staff = await User.create({
-
     name: data.name,
-
     email: data.email.toLowerCase(),
-
     passwordHash: await bcrypt.hash(data.password, 12),
-
     role: 'staff'
-
   });
 
   res.status(201).json({
-
     id: staff.id,
     name: staff.name,
     email: staff.email,
     role: staff.role
-
   });
-
 }));
 
 
@@ -559,7 +657,6 @@ router.post('/staff', asyncHandler(async (req, res) => {
 // ==========================================
 
 router.get('/export.csv', asyncHandler(async (req, res) => {
-
   const bookings = await Booking.find()
     .populate('location', 'name')
     .populate('slot', 'number')
@@ -584,7 +681,9 @@ router.get('/export.csv', asyncHandler(async (req, res) => {
     'End',
     'AmountINR',
     'OverstayPaidINR',
-    'Payment',
+    'PaymentMethod',
+    'PaymentStatus',
+    'GateQRIssued',
     'Status'
   ];
 
@@ -592,7 +691,6 @@ router.get('/export.csv', asyncHandler(async (req, res) => {
     header.map(safe).join(','),
 
     ...bookings.map(b => [
-
       b.code,
       b.user?.name || b.guestName || 'Guest',
       b.user?.email || b.guestPhone || '—',
@@ -603,11 +701,11 @@ router.get('/export.csv', asyncHandler(async (req, res) => {
       new Date(b.endAt).toISOString(),
       b.amount,
       b.extraPaid || 0,
+      b.payment?.method,
       b.payment?.status,
+      b.gateQrIssuedAt ? 'Yes' : 'No',
       b.status
-
     ].map(safe).join(','))
-
   ];
 
   res
@@ -617,7 +715,6 @@ router.get('/export.csv', asyncHandler(async (req, res) => {
       'attachment; filename="parkease-bookings.csv"'
     )
     .send('\uFEFF' + lines.join('\n'));
-
 }));
 
 

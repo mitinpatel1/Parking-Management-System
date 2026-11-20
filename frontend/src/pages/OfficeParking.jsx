@@ -285,7 +285,7 @@ function SlotBooking({ location, onBack }) {
       });
 
       guestStore.addId(booking._id);
-      nav('/bookings', { state: { newBooking: booking._id, justBooked: true } });
+      nav('/bookings', { state: { newBooking: booking._id, justBooked: true, autoOpenUpi: pay === 'online' } });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -600,23 +600,26 @@ function SlotBooking({ location, onBack }) {
                     checked={pay === 'counter'}
                     onChange={() => setPay('counter')}
                   />
-                  <Wallet size={18} /> Pay at Gate (Cash/UPI)
+                  <Wallet size={18} /> Pay at Gate (Cash)
                 </label>
 
                 <label
                   className={`payment-choice ${pay === 'online' ? 'chosen' : ''}`}
-                  style={!paymentReady ? { opacity: 0.5 } : undefined}
                 >
                   <input
                     type="radio"
                     name="paymethod"
-                    disabled={!paymentReady}
                     checked={pay === 'online'}
                     onChange={() => setPay('online')}
                   />
-                  <CreditCard size={18} /> Pay Online Now
+                  <CreditCard size={18} /> Pay Online (UPI)
                 </label>
               </div>
+              <small className="muted" style={{ display: 'block', marginTop: 6, fontSize: '0.8rem' }}>
+                {pay === 'counter'
+                  ? '💵 Pay cash to security staff at gate within 24 hours to activate entry pass.'
+                  : '📱 Pay instantly via UPI QR (GPay, PhonePe, Paytm, BHIM) and get instant Gate Pass QR.'}
+              </small>
             </div>
 
             {/* FARE ESTIMATE */}
@@ -630,7 +633,11 @@ function SlotBooking({ location, onBack }) {
             </small>
 
             <button disabled={saving || !chosen} className="btn btn-primary btn-block btn-book" type="submit">
-              {saving ? 'Confirming parking…' : 'Park Vehicle & Get QR Pass'} <ArrowRight size={18} />
+              {saving
+                ? 'Confirming parking…'
+                : pay === 'online'
+                ? 'Pay Online via UPI & Get Gate Pass'
+                : 'Confirm & Pay Cash at Gate'} <ArrowRight size={18} />
             </button>
 
             <div className="security-text">

@@ -2917,11 +2917,13 @@ select {
   inset: 0;
   background: #11152a88;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 18px;
-  z-index: 100;
-  backdrop-filter: blur(3px)
+  padding: 30px 18px;
+  z-index: 1000;
+  backdrop-filter: blur(3px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .form-modal {
@@ -4106,27 +4108,32 @@ select {
 
 /* 58mm Thermal Receipt Styles */
 .receipt-modal-backdrop {
+  position: fixed;
+  inset: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  z-index: 9999;
+  z-index: 99999;
   background: rgba(15, 23, 42, 0.75);
   backdrop-filter: blur(4px);
-  padding: 16px;
+  padding: 40px 16px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .receipt-modal-container {
   background: #ffffff;
-  border-radius: 12px;
+  border-radius: 14px;
   box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25);
   width: 100%;
-  max-width: 340px;
+  max-width: 380px;
+  margin: 16px auto 40px auto;
   padding: 16px;
   animation: modalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
   gap: 12px;
+  position: relative;
 }
 
 .receipt-screen-toolbar {
@@ -4143,14 +4150,35 @@ select {
   align-items: center;
   gap: 6px;
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   color: #1e293b;
+  white-space: nowrap;
 }
 
 .receipt-toolbar-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.receipt-close-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.receipt-close-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fca5a5;
 }
 
 .receipt-58mm-paper {

@@ -52,6 +52,7 @@ router.post('/:id/settle', asyncHandler(async (req, res) => {
   const b = await Booking.findById(req.params.id);
   if (!b || b.status !== 'payment_due') throw new ApiError(400, 'Booking has no due balance at exit');
   b.payment.status = 'paid'; b.payment.paidAt = new Date(); b.payment.reference = reference.trim() || `COUNTER-${Date.now()}`;
+  b.payment.gateQrIssuedAt = b.payment.gateQrIssuedAt || new Date();
   b.extraPaid = b.extraDue; b.extraDue = 0; b.status = 'completed'; await b.save(); emitBooking(b);
   await notify(b.user, 'Payment settled', `Parking visit ${b.code} is complete.`, b.id).catch(console.error);
   await populate(b);
@@ -68,6 +69,8 @@ router.post('/:id/record-cash', asyncHandler(async (req, res) => {
   b.payment.method = 'counter';
   b.payment.paidAt = new Date();
   b.payment.reference = reference.trim() || `CASH-${Date.now()}`;
+  b.payment.gateQrIssuedAt = new Date();
+  b.payment.gateQrIssuedBy = req.user.id;
   if (b.status === 'pending_payment') {
     b.status = 'confirmed';
     b.holdUntil = undefined;
